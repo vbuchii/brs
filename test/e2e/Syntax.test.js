@@ -30,6 +30,7 @@ describe("end to end syntax", () => {
             "true",
             "false",
             "5",
+            "6",
             "7",
             "30",
             "40",
@@ -195,7 +196,7 @@ describe("end to end syntax", () => {
 
         expect(allArgs(outputStreams.stdout.write).filter((arg) => arg !== "\n")).toEqual([
             // note: associative array keys are sorted before iteration
-            "createobject",
+            "createObject",
             "in",
             "run",
             "stop",

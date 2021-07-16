@@ -27,6 +27,7 @@ import { roInvalid } from "./RoInvalid";
 import type * as MockNodeModule from "../../extensions/MockNode";
 import { BlockEnd } from "../../parser/Statement";
 import { Stmt } from "../../parser";
+import { generateArgumentMismatchError } from "../../interpreter/ArgumentMismatch";
 
 interface BrsCallback {
     interpreter: Interpreter;
@@ -301,7 +302,7 @@ export class RoSGNode extends BrsComponent implements BrsValue, BrsIterable {
     readonly defaultFields: FieldModel[] = [
         { name: "change", type: "roAssociativeArray" },
         { name: "focusable", type: "boolean" },
-        { name: "focusedChild", type: "node", alwaysNotify: true },
+        { name: "focusedchild", type: "node", alwaysNotify: true },
         { name: "id", type: "string" },
     ];
     m: RoAssociativeArray = new RoAssociativeArray([]);
@@ -327,6 +328,7 @@ export class RoSGNode extends BrsComponent implements BrsValue, BrsIterable {
                 this.keys,
                 this.items,
                 this.lookup,
+                this.lookupCI,
             ],
             ifSGNodeField: [
                 this.addfield,
@@ -642,8 +644,16 @@ export class RoSGNode extends BrsComponent implements BrsValue, BrsIterable {
                             // Determine whether the function should get arguments or not.
                             if (functionToCall.getFirstSatisfiedSignature(functionargs)) {
                                 return functionToCall.call(subInterpreter, ...functionargs);
-                            } else {
+                            } else if (functionToCall.getFirstSatisfiedSignature([])) {
                                 return functionToCall.call(subInterpreter);
+                            } else {
+                                return interpreter.addError(
+                                    generateArgumentMismatchError(
+                                        functionToCall,
+                                        functionargs,
+                                        subInterpreter.stack[subInterpreter.stack.length - 1]
+                                    )
+                                );
                             }
                         } catch (reason) {
                             if (!(reason instanceof Stmt.ReturnValue)) {
@@ -800,6 +810,9 @@ export class RoSGNode extends BrsComponent implements BrsValue, BrsIterable {
             return this.get(new BrsString(lKey));
         },
     });
+
+    /** Given a key, returns the value associated with that key. This method is case insensitive. */
+    private lookupCI = new Callable("lookupCI", this.lookup.signatures[0]);
 
     /** Adds a new field to the node, if the field already exists it doesn't change the current value. */
     private addfield = new Callable("addfield", {
@@ -1100,7 +1113,7 @@ export class RoSGNode extends BrsComponent implements BrsValue, BrsIterable {
 
             aa.getValue().forEach((value, key) => {
                 let fieldName = new BrsString(key);
-                if (this.fields.has(key) || createFields.toBoolean()) {
+                if (this.fields.has(key.toLowerCase()) || createFields.toBoolean()) {
                     this.set(fieldName, value);
                 }
             });
@@ -1472,7 +1485,7 @@ export class RoSGNode extends BrsComponent implements BrsValue, BrsIterable {
                 if (this.parent instanceof RoSGNode) {
                     this.parent.removeChildByReference(this);
                 }
-                this.setParent(newParent);
+                newParent.appendChildToParent(this);
                 return BrsBoolean.True;
             }
             return BrsBoolean.False;

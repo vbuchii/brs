@@ -16,6 +16,7 @@ import {
 } from "./componentprocessor";
 import { Parser } from "./parser";
 import { Interpreter, ExecutionOptions, defaultExecutionOptions } from "./interpreter";
+import { resetTestData } from "./extensions";
 import * as BrsError from "./Error";
 import * as LexerParser from "./LexerParser";
 import { CoverageCollector } from "./coverage";
@@ -150,6 +151,9 @@ async function loadFiles(options: Partial<ExecutionOptions>) {
         throw new Error("Unable to build interpreter.");
     }
 
+    // Store manifest as a property on the Interpreter for further reusing
+    interpreter.manifest = manifest;
+
     let componentLibraryInterpreters = (await pSettle(componentLibrariesToLoad))
         .filter((result) => result.isFulfilled)
         .map((result) => result.value!.interpreter);
@@ -230,6 +234,10 @@ export async function createExecuteWithScope(
     interpreter.errors = [];
 
     return (filenames: string[], args: BrsTypes.BrsType[]) => {
+        // Reset any mocks so that subsequent executions don't interfere with each other.
+        interpreter.environment.resetMocks();
+        resetTestData();
+
         let ast = lexParseSync(filenames, interpreter.options);
         let execErrors: BrsError.BrsError[] = [];
         let returnValue = interpreter.inSubEnv((subInterpreter) => {

@@ -38,12 +38,12 @@ describe("RoSGNode", () => {
     change: <Component: roAssociativeArray>
     focusable: false
     focusedchild: invalid
-    id: 
+    id: ""
     array: <Component: roArray>
     associative-array: <Component: roAssociativeArray>
     node: <Component: roSGNode:Node>
     boolean: true
-    string: a string
+    string: "a string"
     number: -1
 }`
             );
@@ -478,7 +478,7 @@ describe("RoSGNode", () => {
 
             it("only adds fields if passed as an associative array", () => {
                 let node = new RoSGNode([]);
-                let fields = "non associative array";
+                let fields = new BrsString("non associative array");
 
                 let addFields = node.getMethod("addfields");
 
@@ -528,7 +528,7 @@ describe("RoSGNode", () => {
                 let expected = new RoAssociativeArray([
                     { name: new BrsString("change"), value: new RoAssociativeArray([]) },
                     { name: new BrsString("focusable"), value: BrsBoolean.False },
-                    { name: new BrsString("focusedChild"), value: BrsInvalid.Instance },
+                    { name: new BrsString("focusedchild"), value: BrsInvalid.Instance },
                     { name: new BrsString("id"), value: new BrsString("") },
                 ]);
                 result.elements.forEach((value, name) => {

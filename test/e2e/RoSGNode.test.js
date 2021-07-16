@@ -103,6 +103,8 @@ describe("components/roSGNode", () => {
             "true",
             "can look up elements (brackets): ",
             "true",
+            "can case insensitive look up elements: ",
+            "true",
             "can check for existence: ",
             "true",
             "can empty itself: ",
@@ -174,6 +176,8 @@ describe("components/roSGNode", () => {
             "4",
             "new parent id: ",
             "new node",
+            "new child count after reparent: ",
+            "1",
             //ifNodeDict tests
             "find node that does not exist: ",
             "invalid",

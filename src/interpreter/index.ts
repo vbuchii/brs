@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import * as PP from "../preprocessor";
 
 import {
     BrsType,
@@ -10,17 +11,14 @@ import {
     BrsString,
     isBrsBoolean,
     Int32,
-    Int64,
     isBrsCallable,
     Uninitialized,
     RoArray,
     isIterable,
-    SignatureAndMismatches,
-    MismatchReason,
     Callable,
     BrsNumber,
     Float,
-    Double,
+    tryCoerce,
 } from "../brsTypes";
 
 import { Lexeme, Location } from "../lexer";
@@ -44,6 +42,8 @@ import { isBoxable, isUnboxable } from "../brsTypes/Boxing";
 import { ComponentDefinition } from "../componentprocessor";
 import pSettle from "p-settle";
 import { CoverageCollector } from "../coverage";
+import { ManifestValue } from "../preprocessor/Manifest";
+import { generateArgumentMismatchError } from "./ArgumentMismatch";
 
 /** The set of options used to configure an interpreter's execution. */
 export interface ExecutionOptions {
@@ -75,6 +75,7 @@ Object.freeze(defaultExecutionOptions);
 export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType> {
     private _environment = new Environment();
     private coverageCollector: CoverageCollector | null = null;
+    private _manifest: PP.Manifest | undefined;
 
     readonly options: ExecutionOptions;
     readonly stdout: OutputProxy;
@@ -92,6 +93,14 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
 
     get environment() {
         return this._environment;
+    }
+
+    get manifest() {
+        return this._manifest != null ? this._manifest : new Map<string, ManifestValue>();
+    }
+
+    set manifest(manifest: PP.Manifest) {
+        this._manifest = manifest;
     }
 
     setCoverageCollector(collector: CoverageCollector) {
@@ -225,15 +234,19 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
         // Set the focused node of the sub env, because our current env has the most up-to-date reference.
         newEnv.setFocusedNode(this._environment.getFocusedNode());
 
+        let returnValue;
         try {
             this._environment = newEnv;
-            return func(this);
-        } catch (err) {
-            throw err;
-        } finally {
+            returnValue = func(this);
             this._environment = originalEnvironment;
             this._environment.setFocusedNode(newEnv.getFocusedNode());
+        } catch (err) {
+            this._environment = originalEnvironment;
+            this._environment.setFocusedNode(newEnv.getFocusedNode());
+            throw err;
         }
+
+        return returnValue;
     }
 
     exec(statements: ReadonlyArray<Stmt.Statement>, ...args: BrsType[]) {
@@ -447,11 +460,10 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
         };
         let requiredType = typeDesignators[name.charAt(name.length - 1)];
 
-        if (requiredType && requiredType !== value.kind) {
-            if (requiredType === ValueKind.Int64 && value.kind === ValueKind.Int32) {
-                value = new Int64(value.getValue());
-            } else if (requiredType === ValueKind.Double && value.kind === ValueKind.Float) {
-                value = new Double(value.getValue());
+        if (requiredType) {
+            let coercedValue = tryCoerce(value, requiredType);
+            if (coercedValue != null) {
+                value = coercedValue;
             } else {
                 return this.addError(
                     new TypeMismatch({
@@ -1159,57 +1171,8 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
                 return returnedValue || BrsInvalid.Instance;
             }
         } else {
-            function formatMismatch(mismatchedSignature: SignatureAndMismatches) {
-                let sig = mismatchedSignature.signature;
-                let mismatches = mismatchedSignature.mismatches;
-
-                let messageParts = [];
-
-                let args = sig.args
-                    .map((a) => {
-                        let requiredArg = `${a.name.text} as ${ValueKind.toString(a.type.kind)}`;
-                        if (a.defaultValue) {
-                            return `[${requiredArg}]`;
-                        } else {
-                            return requiredArg;
-                        }
-                    })
-                    .join(", ");
-                messageParts.push(
-                    `function ${functionName}(${args}) as ${ValueKind.toString(sig.returns)}:`
-                );
-                messageParts.push(
-                    ...mismatches
-                        .map((mm) => {
-                            switch (mm.reason) {
-                                case MismatchReason.TooFewArguments:
-                                    return `* ${functionName} requires at least ${mm.expected} arguments, but received ${mm.received}.`;
-                                case MismatchReason.TooManyArguments:
-                                    return `* ${functionName} accepts at most ${mm.expected} arguments, but received ${mm.received}.`;
-                                case MismatchReason.ArgumentTypeMismatch:
-                                    return `* Argument '${mm.argName}' must be of type ${mm.expected}, but received ${mm.received}.`;
-                            }
-                        })
-                        .map((line) => `    ${line}`)
-                );
-
-                return messageParts.map((line) => `    ${line}`).join("\n");
-            }
-
-            let mismatchedSignatures = callee.getAllSignatureMismatches(args);
-
-            let header;
-            let messages;
-            if (mismatchedSignatures.length === 1) {
-                header = `Provided arguments don't match ${functionName}'s signature.`;
-                messages = [formatMismatch(mismatchedSignatures[0])];
-            } else {
-                header = `Provided arguments don't match any of ${functionName}'s signatures.`;
-                messages = mismatchedSignatures.map(formatMismatch);
-            }
-
             return this.addError(
-                new BrsError([header, ...messages].join("\n"), expression.closingParen.location)
+                generateArgumentMismatchError(callee, args, expression.closingParen.location)
             );
         }
     }
@@ -1278,7 +1241,7 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
         }
 
         try {
-            return source.get(index);
+            return source.get(index, true);
         } catch (err) {
             return this.addError(new BrsError(err.message, expression.closingSquare.location));
         }
@@ -1537,7 +1500,7 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
         let value = this.evaluate(statement.value);
 
         try {
-            source.set(index, value);
+            source.set(index, value, true);
         } catch (err) {
             return this.addError(new BrsError(err.message, statement.closingSquare.location));
         }
@@ -1660,8 +1623,10 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
         let value;
         try {
             value = expression.accept<BrsType>(this);
-        } finally {
             this.stack.pop();
+        } catch (err) {
+            this.stack.pop();
+            throw err;
         }
 
         return value;
@@ -1675,8 +1640,10 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
         let value;
         try {
             value = statement.accept<BrsType>(this);
-        } finally {
             this.stack.pop();
+        } catch (err) {
+            this.stack.pop();
+            throw err;
         }
 
         return value;
@@ -1686,7 +1653,7 @@ export class Interpreter implements Expr.Visitor<BrsType>, Stmt.Visitor<BrsType>
      * Emits an error via this processor's `events` property, then throws it.
      * @param err the ParseError to emit then throw
      */
-    private addError(err: BrsError): never {
+    public addError(err: BrsError): never {
         this.errors.push(err);
         this.events.emit("err", err);
         throw err;

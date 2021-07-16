@@ -1,6 +1,7 @@
 const { execute } = require("../../lib/");
 const { createMockStreams, resourceFile, allArgs } = require("./E2ETests");
 const lolex = require("lolex");
+const path = require("path");
 
 describe("end to end brightscript functions", () => {
     let outputStreams;
@@ -60,6 +61,8 @@ describe("end to end brightscript functions", () => {
             "true",
             "can look up elements (brackets): ",
             "true",
+            "can case insensitive look up elements: ",
+            "true",
             "can check for existence: ",
             "true",
             "items() example key: ",
@@ -72,8 +75,18 @@ describe("end to end brightscript functions", () => {
             "value1",
             "lookup uses mode case too",
             "value1",
+            "lookupCI ignore mode case",
+            "value1",
             "can empty itself: ",
             "true",
+            "saved key: ",
+            "DD",
+            "saved key after accessing by dot: ",
+            "dd",
+            "saved key after accessing by index: ",
+            "Dd",
+            "AA keys size: ",
+            "1",
         ]);
     });
 
@@ -185,6 +198,8 @@ describe("end to end brightscript functions", () => {
             "b", // split("/")[1]
             "%F0%9F%90%B6", // dog emoji, uri-encoded
             "🐶", // uri-encoded dog emoji, decoded
+            "true", // isEmpty for empty string
+            "false", // isEmpty for filled string
         ]);
     });
 
@@ -204,8 +219,8 @@ describe("end to end brightscript functions", () => {
                 "getAttributes() = ",
                 `<Component: roAssociativeArray> =\n` +
                     `{\n` +
-                    `    id: someId\n` +
-                    `    attr1: 0\n` +
+                    `    id: "someId"\n` +
+                    `    attr1: "0"\n` +
                     `}`,
                 'getNamedElementsCi("child1") count = ',
                 "2",
@@ -256,6 +271,7 @@ describe("end to end brightscript functions", () => {
             "ExtendedChild init",
             "ExtendedComponent init",
             "ExtendedComponent start",
+            "BaseComponent caseinsensitivefunction",
             "true", //m.top.isSubtype("ExtendedComponent")
             "true", //m.top.isSubtype("BaseComponent")
             "true", //m.top.isSubtype("Node")
@@ -717,6 +733,21 @@ describe("end to end brightscript functions", () => {
             "-1",
             "textEditBox backgroundUri:",
             "",
+        ]);
+    });
+
+    test("components/roAppInfo.brs", async () => {
+        outputStreams.root = path.join(__dirname, "resources", "conditional-compilation");
+
+        await execute([resourceFile("components", "roAppInfo.brs")], outputStreams);
+        expect(allArgs(outputStreams.stdout.write).filter((arg) => arg !== "\n")).toEqual([
+            "dev",
+            "true",
+            "3.1.2",
+            "Some title",
+            "subtitle",
+            "34c6fceca75e456f25e7e99531e2425c6c1de443",
+            "Some text",
         ]);
     });
 });
